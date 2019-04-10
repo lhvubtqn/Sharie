@@ -67,7 +67,7 @@ void CClientDlg::OnCancel()
 
 	for (int i = 0; i < m_thread.size(); ++i)
 	{
-		m_thread[i].join();
+		// m_thread[i].join();
 	}
 	CDialogEx::OnCancel();
 }
