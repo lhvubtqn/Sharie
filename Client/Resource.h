@@ -14,13 +14,11 @@
 #define IDC_BUTTON_SIGN_UP              1004
 #define IDC_LIST_FILES                  1005
 #define IDC_BUTTON_DOWNLOAD             1006
-#define IDC_MFCEDITBROWSE_SAVE          1007
 #define IDC_BUTTON_OPEN_FOLDER          1007
 #define IDC_BUTTON_CLEAR                1008
 #define IDC_BUTTON_REFRESH              1009
 #define IDC_LIST_INFO                   1010
 #define IDC_BUTTON_OPEN_FILE            1011
-#define IDC_LIST_FILES2                 1012
 #define IDC_LIST_LOG                    1012
 
 // Next default values for new objects

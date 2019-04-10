@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "ClientControl.h"
+#include <WinUser.h>
 #include <afxsock.h>
 #include <iostream>
 #include <fstream>
@@ -12,6 +12,7 @@
 #include <vector>
 #include <string>
 #include <thread>
+
 #include <ctime>
 
 // CClientDlg dialog
@@ -45,7 +46,7 @@ protected:
 protected:
 	enum REQUEST_TYPE
 	{
-		SIGN_UP, SIGN_IN, SIGN_OUT, DOWNLOAD, GET_LIST_FILE, CONNECT
+		SIGN_UP, SIGN_IN, SIGN_OUT, DOWNLOAD, GET_LIST_FILE, GET_LIST_LOG
 	};
 
 	struct DownloadInfo
@@ -62,14 +63,15 @@ protected:
 	std::vector<std::thread> m_thread;
 	std::vector<DownloadInfo> m_download_info;
 	CListBox m_downloadList;
-	ClientControl m_client;
 
 private:
 	std::string hGetServerAddress();
 	std::string hGetWindowText(int CWndId);
+	void hUpdate();
 	void hUserSignIn();
 	void hUserSignOut();
 	void hGetListFile();
+	void hGetListLog();
 	void hDownload(std::string filename);
 	void hStartDownload(std::string filename, std::string filepath);
 	void hFinishDownload(std::string filename, std::string filepath);

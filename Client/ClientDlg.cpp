@@ -150,6 +150,10 @@ BOOL CClientDlg::OnInitDialog()
 	download_list->EnableWindow(FALSE);
 	((CListBox*)download_list)->ResetContent();
 
+	// Đóng log
+	CWnd* log_list = this->GetDlgItem(IDC_LIST_LOG);
+	log_list->EnableWindow(FALSE);
+
 	// Chưa có file, không mở file được
 	CWnd* bn_folder = this->GetDlgItem(IDC_BUTTON_OPEN_FOLDER);
 	CWnd* bn_file = this->GetDlgItem(IDC_BUTTON_OPEN_FILE);
@@ -163,11 +167,6 @@ BOOL CClientDlg::OnInitDialog()
 
 	// Khởi tạo mở file
 	CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-
-	// Gán chơi
-	m_client.GetFiles = [this]() {CClientDlg::hGetListFile(); };
-	m_client.UserSignOut = [this]() {CClientDlg::hUserSignOut(); };
-	m_client.list = (CListBox*)this->GetDlgItem(IDC_LIST_LOG);
 
 	return TRUE;  // return TRUE  unless you set the focus to a control
 }
@@ -240,20 +239,41 @@ std::string CClientDlg::hGetWindowText(int CWndId)
 	return std::string(tmp);
 }
 
+void CClientDlg::hUpdate()
+{
+	// Mỗi 500ms update một lần
+	while (m_isSignIn)
+	{
+		Sleep(200);
+		if (!m_isSignIn) return;
+
+		CSocket connector;
+		connector.Create();
+		if (connector.Connect(CString(hGetServerAddress().c_str()), PORT) == FALSE)
+		{
+			MessageBoxA(this->m_hWnd, "Connection lost!", NULL, MB_ICONWARNING | MB_OK);
+			hUserSignOut();
+			return;
+		}
+		connector.ShutDown();
+		connector.Close();
+
+		hGetListFile();
+		hGetListLog();
+	}
+}
+
 void CClientDlg::hUserSignIn()
 {
-	// Yêu cầu kết nối
-	m_client.Create();
-	m_client.AsyncSelect();
-	m_client.Connect(CString(hGetServerAddress().c_str()), PORT);
-	hSendRequest(REQUEST_TYPE::CONNECT, &m_client);
+	// Mở Update
+	m_isSignIn = TRUE;
+	m_thread.push_back(std::thread(&CClientDlg::hUpdate, this));
 
 	// Không cho người dùng đăng ký 
 	CWnd* sign_up = this->GetDlgItem(IDC_BUTTON_SIGN_UP);
 	sign_up->EnableWindow(FALSE);
 
 	// Chuyển đăng nhập sang đăng xuất
-	m_isSignIn = TRUE;
 	CWnd* sign_in = this->GetDlgItem(IDC_BUTTON_SIGN_IN);
 	sign_in->SetWindowTextW(_T("Sign Out"));
 
@@ -273,6 +293,10 @@ void CClientDlg::hUserSignIn()
 	CWnd* download_list = this->GetDlgItem(IDC_LIST_FILES);
 	download_list->EnableWindow(TRUE);
 
+	// Mở log
+	CWnd* log_list = this->GetDlgItem(IDC_LIST_LOG);
+	log_list->EnableWindow(TRUE);
+
 	// Lấy tập các tên tệp
 	hGetListFile();
 
@@ -282,10 +306,6 @@ void CClientDlg::hUserSignIn()
 
 void CClientDlg::hUserSignOut()
 {
-	// Ngắt kết nối
-	m_client.ShutDown(2);
-	m_client.Close();
-
 	// Cho người dùng đăng ký 
 	CWnd* sign_up = this->GetDlgItem(IDC_BUTTON_SIGN_UP);
 	sign_up->EnableWindow(TRUE);
@@ -311,19 +331,24 @@ void CClientDlg::hUserSignOut()
 	CWnd* download_list = this->GetDlgItem(IDC_LIST_FILES);
 	download_list->EnableWindow(FALSE);
 	((CListBox*)download_list)->ResetContent();
+	hAdjustScroll((CListBox*)download_list);
+
+	// Xóa log
+	CWnd* log_list = this->GetDlgItem(IDC_LIST_LOG);
+	log_list->EnableWindow(FALSE);
+	((CListBox*)log_list)->ResetContent();
 }
 
 void CClientDlg::hGetListFile()
 {
-	// Xóa download list
+	// Lấy con trỏ list
 	CListBox* list = (CListBox*)this->GetDlgItem(IDC_LIST_FILES);
-	list->ResetContent();
 
 	// Connect to server
 	CSocket connector;
 	if (!hConnectToServer(&connector)) return;
 
-	// Gửi request download
+	// Gửi request lấy list files
 	hSendRequest(REQUEST_TYPE::GET_LIST_FILE, &connector);
 
 	// Nhận kích thước msg
@@ -340,14 +365,94 @@ void CClientDlg::hGetListFile()
 	int start = sMsg.find_first_of('\n');
 	int size = std::stoi(sMsg.substr(0, start));
 
-	// Thêm vào list file
+	// Lấy list file
+	std::vector<std::string> list_files;
 	for (int i = 0; i < size; ++i)
 	{
 		std::string filename = sMsg.substr(start + 1, sMsg.find_first_of('\n', start + 1) - start - 1);
-		list->AddString(CString(filename.c_str()));
+		list_files.push_back(filename);
 		start = sMsg.find_first_of('\n', start + 1);
 	}
-	
+
+	// Thêm những file chưa có
+	for (int i = 0; i < list_files.size(); ++i)
+	{
+		CString filename(list_files[i].c_str());
+		if (list->FindString(0, filename) == LB_ERR)
+		{
+			list->AddString(filename);
+			list->SetTopIndex(list->GetCount() - 1);
+		}
+	}
+
+	// Xóa những file không có trong list_files
+	int index = 0;
+	while (index < list->GetCount())
+	{
+		BOOL exist = FALSE;
+		for (int i = 0; i < list_files.size(); ++i)
+		{
+			CString filename(list_files[i].c_str());
+			CString compare;
+			list->GetText(index, compare);
+			if (compare == filename) exist = TRUE;
+		}
+		if (exist) index++;
+		else
+		{
+			list->DeleteString(index);
+			list->SetTopIndex(list->GetCount() - 1);
+		}
+	}
+	hAdjustScroll(list);
+
+	// Delete msg
+	if (msg) delete[]msg;
+
+	// Đóng kết nối
+	connector.ShutDown(2);
+	connector.Close();
+}
+
+void CClientDlg::hGetListLog()
+{
+	// Lấy pointer
+	CListBox* list = (CListBox*)this->GetDlgItem(IDC_LIST_LOG);
+
+	// Connect to server
+	CSocket connector;
+	if (!hConnectToServer(&connector)) return;
+
+	// Gửi request lấy list log
+	hSendRequest(REQUEST_TYPE::GET_LIST_LOG, &connector);
+
+	// Nhận kích thước msg
+	int msgSize = 0;
+	connector.Receive((char*)&msgSize, sizeof(int), 0);
+
+	// Nhận msg
+	char* msg = new char[msgSize + 1];
+	connector.Receive((char*)msg, msgSize, 0);
+	msg[msgSize] = '\0';
+
+	// Lấy kích thước mảng
+	std::string sMsg(msg);
+	int start = sMsg.find_first_of('\n');
+	int size = std::stoi(sMsg.substr(0, start));
+
+	// Thêm vào list file
+	for (int i = 0; i < size; ++i)
+	{
+		std::string log = sMsg.substr(start + 1, sMsg.find_first_of('\n', start + 1) - start - 1);
+		CString item = CString(log.c_str());
+		if (list->FindString(0, item) == LB_ERR)
+		{
+			list->AddString(item);
+			list->SetTopIndex(list->GetCount() - 1);
+		}	
+		start = sMsg.find_first_of('\n', start + 1);
+	}
+
 	// Delete msg
 	if (msg) delete[]msg;
 
