@@ -59,6 +59,7 @@ void ServerControl::Close()
 		if (m_client[i].isSignIn)
 		{
 			this->m_listfiles->AddString(CString((datetime + " " + m_client[i].username + " signed out.").c_str()));
+			m_client[i].log.clear();
 			m_client[i].isSignIn = FALSE;
 		}
 	}
