@@ -208,6 +208,7 @@
     <None Include="res\Client.rc2" />
   </ItemGroup>
   <ItemGroup>
+    <Image Include="..\Icon\connected.ico" />
     <Image Include="res\Client.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

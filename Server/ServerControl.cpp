@@ -52,7 +52,16 @@ void ServerControl::OnClose(int nErrorCode)
 
 void ServerControl::Close()
 {
-	m_thread.push_back(std::thread(&ServerControl::hAnnounce, this, ANNOUNCE_TYPE::SHUT_DOWN, ""));
+	m_listonline->ResetContent();
+	std::string datetime = hGetCurrentDate();
+	for (int i = 0; i < m_client.size(); ++i)
+	{
+		if (m_client[i].isSignIn)
+		{
+			this->m_listfiles->AddString(CString((datetime + " " + m_client[i].username + " signed out.").c_str()));
+			m_client[i].isSignIn = FALSE;
+		}
+	}
 	CAsyncSocket::Close();
 }
 
@@ -88,9 +97,6 @@ void ServerControl::AddSharedFile(std::string filepath)
 	file.folderpath = filepath.substr(0, filepath.find_last_of('\\') + 1);
 
 	m_shared_files.push_back(file);
-
-	// Thông báo thay đổi file
-	m_thread.push_back(std::thread(&ServerControl::hAnnounce, this, ANNOUNCE_TYPE::LIST_FILES, ""));
 }
 
 void ServerControl::DeleteSharedFile(std::string filename)
@@ -100,12 +106,16 @@ void ServerControl::DeleteSharedFile(std::string filename)
 		++i;
 	if (i < m_shared_files.size())
 		m_shared_files.erase(m_shared_files.begin() + i);
-	m_thread.push_back(std::thread(&ServerControl::hAnnounce, this, ANNOUNCE_TYPE::LIST_FILES, ""));
 }
 
-void ServerControl::SetListBox(CListBox * pListBox)
+void ServerControl::SetListFiles(CListBox * pListBox)
 {
-	m_listbox = pListBox;
+	m_listfiles = pListBox;
+}
+
+void ServerControl::SetListOnline(CListBox * pListBox)
+{
+	m_listonline = pListBox;
 }
 
 void ServerControl::hRequestHandler(SOCKET hSocket)
@@ -158,47 +168,13 @@ void ServerControl::hRequestHandler(SOCKET hSocket)
 		hSendListFile(connector);
 		break;
 
-	case REQUEST_TYPE::CONNECT:
-		Sleep(100);
-		for (int i = 0; i < m_client.size(); ++i)
-		{
-			if (m_client[i].username == req.username && m_client[i].password == req.password)
-			{
-				m_client[i].socket = hSocket;
-			}
-		}
+	case REQUEST_TYPE::GET_LIST_LOG:
+		hSendListLog(connector, req.username);
+		break;
 	}
 
 	// Đóng kết nối
 	connector.Detach();
-}
-
-void ServerControl::hAnnounce(ANNOUNCE_TYPE type, std::string username)
-{
-	// Tạo thông báo
-	std::string msg = std::to_string(type) + '\n' + username + '\n';
-
-	// Gửi đến những client đang đăng nhập
-	for (int i = 0; i < m_client.size(); ++i)
-	{
-		if (m_client[i].isSignIn && m_client[i].username != username)
-		{
-			CSocket connector;
-			connector.Attach(m_client[i].socket);
-			int size = msg.length();
-			connector.Send((char*)&size, sizeof(int), 0);
-			connector.Send((char*)msg.c_str(), size, 0);
-			connector.Detach();
-			if (type == ANNOUNCE_TYPE::SHUT_DOWN)
-			{
-				m_client[i].isSignIn = FALSE;
-
-				// Thông báo trên history
-				std::string datetime = hGetCurrentDate();
-				this->m_listbox->AddString(CString((datetime + " " + m_client[i].username + " signed out.").c_str()));
-			}
-		}
-	}
 }
 
 BOOL ServerControl::hSignUp(std::string username, std::string password, SOCKET socket)
@@ -213,16 +189,22 @@ BOOL ServerControl::hSignUp(std::string username, std::string password, SOCKET s
 	// Nếu chưa tồn tại, thêm vào danh sách client
 	m_client.push_back(Client{ username, password, TRUE });
 	
-
 	// Thông báo trên history
 	std::string datetime = hGetCurrentDate();
-	this->m_listbox->AddString(CString((datetime + " " + username + " signed up.").c_str()));
+	this->m_listfiles->AddString(CString((datetime + " " + username + " signed up.").c_str()));
+
+	// Update danh sách client online
+	hUpdateOnline();
 
 	// Thông báo các client khác
-	m_thread.push_back(std::thread(&ServerControl::hAnnounce, this, ANNOUNCE_TYPE::USER_SIGN_UP, username));
+	for (int i = 0; i < m_client.size(); ++i)
+	{
+		if (m_client[i].isSignIn && m_client[i].username != username)
+			m_client[i].log.push_back(datetime + " " + username + " signed up.");
+	}
 
 	// Điều chỉnh thanh cuộn
-	hAdjustScroll(m_listbox);
+	hAdjustScroll(m_listfiles);
 	return TRUE;
 }
 
@@ -237,13 +219,20 @@ BOOL ServerControl::hSignIn(std::string username, std::string password, SOCKET s
 
 			// Thông báo trên history
 			std::string datetime = hGetCurrentDate();
-			this->m_listbox->AddString(CString((datetime + " " + username + " signed in.").c_str()));
+			this->m_listfiles->AddString(CString((datetime + " " + username + " signed in.").c_str()));
+
+			// Update danh sách client online
+			hUpdateOnline();
 
 			// Thông báo các client khác
-			m_thread.push_back(std::thread(&ServerControl::hAnnounce, this, ANNOUNCE_TYPE::USER_SIGN_IN, username));
+			for (int i = 0; i < m_client.size(); ++i)
+			{
+				if (m_client[i].isSignIn && m_client[i].username != username)
+					m_client[i].log.push_back(datetime + " " + username + " signed in.");
+			}
 
 			// Điều chỉnh thanh cuộn
-			hAdjustScroll(m_listbox);
+			hAdjustScroll(m_listfiles);
 			return TRUE;
 		}
 	}
@@ -258,19 +247,27 @@ void ServerControl::hSignOut(std::string username)
 		if (m_client[i].username == username)
 		{
 			m_client[i].isSignIn = FALSE;
+			m_client[i].log.clear();
 			break;
 		}
 	}
 
 	// Thông báo trên history
 	std::string datetime = hGetCurrentDate();
-	this->m_listbox->AddString(CString((datetime + " " + username + " signed out.").c_str()));
+	this->m_listfiles->AddString(CString((datetime + " " + username + " signed out.").c_str()));
+
+	// Update danh sách client online
+	hUpdateOnline();
 
 	// Thông báo các client khác
-	m_thread.push_back(std::thread(&ServerControl::hAnnounce, this, ANNOUNCE_TYPE::USER_SIGN_OUT, username));
+	for (int i = 0; i < m_client.size(); ++i)
+	{
+		if (m_client[i].isSignIn && m_client[i].username != username)
+			m_client[i].log.push_back(datetime + " " + username + " signed out.");
+	}
 
 	// Điều chỉnh thanh cuộn
-	hAdjustScroll(m_listbox);
+	hAdjustScroll(m_listfiles);
 }
 
 void ServerControl::hDownload(CSocket & connector, std::string username, std::string filename)
@@ -333,8 +330,8 @@ void ServerControl::hDownload(CSocket & connector, std::string username, std::st
 	{
 		// Thông báo lên lịch sử
 		std::string datetime = hGetCurrentDate();
-		this->m_listbox->AddString(CString((datetime + " " + username + " downloaded " + filename + ".").c_str()));
-		hAdjustScroll(m_listbox);
+		this->m_listfiles->AddString(CString((datetime + " " + username + " downloaded " + filename + ".").c_str()));
+		hAdjustScroll(m_listfiles);
 	}
 
 	// Delete msg
@@ -352,6 +349,27 @@ void ServerControl::hSendListFile(CSocket & connector)
 	int size = list.length();
 	connector.Send((char*)&size, sizeof(int), 0);
 	connector.Send((char*)list.c_str(), size, 0);
+}
+
+void ServerControl::hSendListLog(CSocket & connector, std::string username)
+{
+	for (int i = 0; i < m_client.size(); ++i)
+	{
+		if (m_client[i].username == username)
+		{
+			// Gửi list hiện tại
+			std::string list(std::to_string(m_client[i].log.size()) + "\n");
+			for (int j = 0; j < m_client[i].log.size(); ++j)
+			{
+				list += m_client[i].log[j] + "\n";
+			}
+
+			int size = list.length();
+			connector.Send((char*)&size, sizeof(int), 0);
+			connector.Send((char*)list.c_str(), size, 0);
+			break;
+		}
+	}
 }
 
 void ServerControl::hAdjustScroll(CListBox * listbox)
@@ -374,6 +392,17 @@ void ServerControl::hAdjustScroll(CListBox * listbox)
 	// Thay đổi thanh cuộn ngang cho phù hợp
 	listbox->SetHorizontalExtent(dx);
 	ASSERT(listbox->GetHorizontalExtent() == dx);
+}
+void ServerControl::hUpdateOnline()
+{
+	m_listonline->ResetContent();
+	for (int i = 0; i < m_client.size(); ++i)
+	{
+		if (m_client[i].isSignIn)
+		{
+			m_listonline->AddString(CString(m_client[i].username.c_str()));
+		}
+	}
 }
 std::string ServerControl::hGetCurrentDate()
 {

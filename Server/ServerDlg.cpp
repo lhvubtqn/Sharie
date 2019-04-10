@@ -112,7 +112,8 @@ BOOL CServerDlg::OnInitDialog()
 	}
 
 	// Gửi list box handler cho server
-	m_server.SetListBox((CListBox*)this->GetDlgItem(IDC_LIST_HISTORY));
+	m_server.SetListFiles((CListBox*)this->GetDlgItem(IDC_LIST_HISTORY));
+	m_server.SetListOnline((CListBox*)this->GetDlgItem(IDC_LIST_ONLINE));
 
 	return TRUE;  // return TRUE  unless you set the focus to a control
 }
@@ -287,6 +288,7 @@ void CServerDlg::OnBnClickedButtonDelete()
 	if (listfiles->GetCount() == 0)
 	{
 		listfiles->EnableWindow(FALSE);
+		m_bnDelete.EnableWindow(FALSE);
 	}
 	else
 	{
@@ -327,9 +329,11 @@ void CServerDlg::hAddFile(CString filepath)
 	std::string filename = file.substr(file.find_last_of('\\') + 1, file.length());
 
 	CListBox* listfiles = (CListBox*)this->GetDlgItem(IDC_LIST_FILES);
+	listfiles->EnableWindow(TRUE);
 	if (listfiles->GetCount() == 0 || listfiles->FindString(0, CString(filename.c_str())) == LB_ERR)
 	{
 		listfiles->AddString(CString(filename.c_str()));
+		listfiles->SetTopIndex(listfiles->GetCount() - 1);
 		hAdjustScroll(listfiles);
 		m_server.AddSharedFile(file);
 	}

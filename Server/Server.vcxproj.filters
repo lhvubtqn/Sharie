@@ -62,5 +62,8 @@
     <Image Include="res\Server.ico">
       <Filter>Resource Files</Filter>
     </Image>
+    <Image Include="..\Icon\connected.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
   </ItemGroup>
 </Project>
