@@ -57,6 +57,24 @@ CClientDlg::CClientDlg(CWnd* pParent /*=nullptr*/)
 
 void CClientDlg::OnCancel()
 {
+	BOOL isDownloading = FALSE;
+	for (int i = 0; i < m_download_info.size(); ++i)
+	{
+		if (m_download_info[i].state.substr(0, 11) == "Downloading")
+		{
+			isDownloading = TRUE;
+			break;
+		}
+	}
+	
+	if (isDownloading)
+	{
+		int act = AfxMessageBox(_T("Some files are being downloaded. Close anyway?"),
+			MB_ICONWARNING | MB_YESNO, 0);
+		if (act == IDNO)
+			return;
+	}
+
 	if (m_isSignIn)
 	{
 		m_isSignIn = FALSE;
