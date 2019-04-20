@@ -1,3 +1,7 @@
 /**/Debug/
-/**/Release/
+/Client/Release/
+/Server/Release/
+*.iobj
+*.ipdb
+*.pdb
 /.vs/
